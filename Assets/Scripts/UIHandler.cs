@@ -25,6 +25,7 @@ public class UIHandler : MonoBehaviour
     [SerializeField] private RawImage gameImage;
     [SerializeField] private TextMeshProUGUI playersGenreText;
     [SerializeField] private TextMeshProUGUI extraInfoText;
+    [SerializeField] private TMP_FontAsset bodyFont;
 
     [SerializeField] private GameObject passwordPanel;
     [SerializeField] private TMP_InputField passwordInputField;
@@ -242,7 +243,10 @@ public class UIHandler : MonoBehaviour
             UnityEngine.Debug.LogWarning($"[UIHandler] Vakje {boxName} niet gevonden in {infoPanel.name}.");
             return null;
         }
-        return CreateText("Text (TMP)", box, exeNameText, exeNameText.fontSizeMax, exeNameText.color, 10f);
+        TextMeshProUGUI text = CreateText("Text (TMP)", box, exeNameText, exeNameText.fontSizeMax, exeNameText.color, 10f);
+        if (bodyFont != null)
+            text.font = bodyFont;
+        return text;
     }
 
     // Maakt een tekstveld dat zijn ouder vult, in dezelfde stijl als de bestaande Name-tekst.
@@ -588,9 +592,35 @@ public class UIHandler : MonoBehaviour
         }
     }
 
-    private bool IsGameRunning
+    public bool IsGameRunning
     {
         get { return runningGame != null; }
+    }
+
+    public IReadOnlyList<GameEntry> Games
+    {
+        get { return games; }
+    }
+
+    public ArcadeConfig Config
+    {
+        get { return config; }
+    }
+
+    // Instellingen of wachtwoord open: dan geen slideshow starten.
+    public bool IsMenuBusy
+    {
+        get { return settingsPanel.activeSelf || passwordPanel.activeSelf; }
+    }
+
+    // Selecteert een game in de lijst, bijvoorbeeld na de slideshow.
+    public void SelectGame(GameEntry game)
+    {
+        int index = game != null ? games.IndexOf(game) : -1;
+        if (index < 0 && gameButtons.Count > 0)
+            index = 0;
+        GameObject target = index >= 0 ? gameButtons[index] : settingsButton.gameObject;
+        StartCoroutine(SelectNextFrame(target));
     }
 
     // Terwijl een game draait: geen input in het menu (de gamepad wordt ook op de achtergrond gelezen),
