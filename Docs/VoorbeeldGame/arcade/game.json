@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "id": "space-blaster",
+  "title": "Space Blaster",
+  "exe": "SpaceBlaster.exe",
+  "makers": ["Jan de Vries", "Sara Bakker"],
+  "year": 2025,
+  "group": "SD2B",
+  "playersMin": 1,
+  "playersMax": 2,
+  "genre": "Shooter",
+  "description": "Verdedig de basis tegen golven aliens.",
+  "controls": "Joystick: bewegen, knop A: schieten",
+  "preview": "preview.png",
+  "screenshots": ["screenshot1.png"]
+}
