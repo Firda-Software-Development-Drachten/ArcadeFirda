@@ -32,6 +32,7 @@ public class GameEntry
     public GameMetadata Metadata;
     public Texture2D Preview;
     public bool HasPreview;
+    public ArcadeHighscoreFile Highscores;
 
     public string Id
     {
@@ -43,7 +44,7 @@ public class GameEntry
         get { return string.IsNullOrWhiteSpace(Metadata.title) ? Path.GetFileName(FolderPath) : Metadata.title.Trim(); }
     }
 
-    // "Jan de Vries, Sara Bakker · 2025"
+    // "Jan de Vries, Sara Bakker", met het jaar op een tweede regel
     public string MakersAndYear
     {
         get
@@ -53,7 +54,7 @@ public class GameEntry
                 parts.Add(string.Join(", ", Metadata.makers));
             if (Metadata.year > 0)
                 parts.Add(Metadata.year.ToString());
-            return string.Join(" · ", parts);
+            return string.Join("\n", parts);
         }
     }
 
@@ -136,7 +137,61 @@ public static class GameLibrary
         if (!game.HasPreview)
             game.Preview = CreatePlaceholder(game.Title);
 
+        ReloadHighscores(game);
         return game;
+    }
+
+    private static string HighscoreBackupFolder
+    {
+        get { return Path.Combine(Application.persistentDataPath, "highscore-backup"); }
+    }
+
+    // Leest arcade/highscores.json van een game. Het menu bewaart van elke scorelijst een kopie; als een
+    // game opnieuw wordt neergezet en het bestand weg is, wordt die kopie teruggezet.
+    public static void ReloadHighscores(GameEntry game)
+    {
+        string path = Path.Combine(game.ArcadeFolder, ArcadeHighscores.FileName);
+        string backupPath = Path.Combine(HighscoreBackupFolder, SafeFileName(game.Id) + ".json");
+
+        ArcadeHighscoreFile file = ArcadeHighscores.LoadFrom(path);
+        if (file != null)
+        {
+            if (file.HasScores)
+                BackupHighscores(path, backupPath);
+            game.Highscores = file;
+            return;
+        }
+
+        file = ArcadeHighscores.LoadFrom(backupPath);
+        if (file != null && file.HasScores && !File.Exists(path))
+        {
+            Debug.Log($"[GameLibrary] {path} ontbreekt, highscores teruggezet uit de back-up.");
+            ArcadeHighscores.SaveTo(file, path);
+        }
+        game.Highscores = file;
+    }
+
+    private static void BackupHighscores(string path, string backupPath)
+    {
+        try
+        {
+            string content = File.ReadAllText(path);
+            if (File.Exists(backupPath) && File.ReadAllText(backupPath) == content)
+                return;
+            Directory.CreateDirectory(HighscoreBackupFolder);
+            File.WriteAllText(backupPath, content);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[GameLibrary] Kon geen back-up maken van {path}: {ex.Message}");
+        }
+    }
+
+    private static string SafeFileName(string name)
+    {
+        foreach (char c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return name;
     }
 
     private static GameMetadata LoadMetadata(string folderPath)

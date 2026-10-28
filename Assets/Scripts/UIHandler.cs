@@ -7,7 +7,9 @@ using UnityEngine.UI;
 using System.IO;
 using TMPro;
 using System.Diagnostics; // <-- Add this
+using System.Runtime.InteropServices;
 using Nobi.UiRoundedCorners;
+using UnityEngine.Video;
 
 public class UIHandler : MonoBehaviour
 {
@@ -65,6 +67,17 @@ public class UIHandler : MonoBehaviour
     private const float launchCooldown = 5f;
     private float lastLaunchTime = -100f;
 
+    // De game die nu draait, zodat het menu weet wanneer hij weer afgesloten is.
+    private Process runningGame;
+    private string runningGameFolder;
+    private const float runningGameCheckInterval = 1f;
+    private float nextRunningGameCheck;
+    private int savedVSyncCount;
+    private VideoPlayer backgroundVideo;
+    private System.IntPtr menuWindow;
+
+    private LeaderboardOverlay leaderboardOverlay;
+
     private const float shutdownCheckInterval = 5f;
     private float nextShutdownCheck = 0f;
     private System.DateTime lastShutdownCheck;
@@ -91,6 +104,7 @@ public class UIHandler : MonoBehaviour
         destinationRoot = destinationRoot.Replace("/", "\\").TrimEnd('\\');
 
         lastShutdownCheck = System.DateTime.Now;
+        backgroundVideo = FindFirstObjectByType<VideoPlayer>();
 
         SetupGameInfoPanel();
         ScanAndCreateGameButtons();
@@ -179,6 +193,12 @@ public class UIHandler : MonoBehaviour
             nextShutdownCheck = Time.unscaledTime + shutdownCheckInterval;
             CheckAutoShutdown();
         }
+
+        if (IsGameRunning && Time.unscaledTime >= nextRunningGameCheck)
+        {
+            nextRunningGameCheck = Time.unscaledTime + runningGameCheckInterval;
+            CheckRunningGame();
+        }
     }
 
     // Zoekt de vakjes onder het grote plaatje op en zet er tekstvelden in.
@@ -205,6 +225,7 @@ public class UIHandler : MonoBehaviour
         {
             gameImageTitle = CreateText("Title", gameImage.transform, exeNameText, 96, Color.white, 40f);
             gameImageTitle.fontStyle = FontStyles.Bold;
+            leaderboardOverlay = LeaderboardOverlay.Create(gameImage.rectTransform, exeNameText);
         }
 
         if (playersGenreText == null)
@@ -393,6 +414,9 @@ public class UIHandler : MonoBehaviour
 
     private void Start()
     {
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+        menuWindow = GetActiveWindow();
+#endif
         Canvas.ForceUpdateCanvases();
 
         if (gameButtons.Count > 0)
@@ -449,6 +473,8 @@ public class UIHandler : MonoBehaviour
     public void GameSelectedOff(int gameNumber)
     {
         gameButtons[gameNumber].GetComponent<RectTransform>().sizeDelta = new Vector2(200, 200);
+        if (leaderboardOverlay != null)
+            leaderboardOverlay.Hide();
     }
 
     private void ShowGameInfo(GameEntry game)
@@ -462,20 +488,21 @@ public class UIHandler : MonoBehaviour
         if (gameImageTitle != null)
             gameImageTitle.text = game.HasPreview ? "" : game.Title;
 
-        // Vakje 1: titel, met makers en jaar eronder
+        // Vakje 1: titel
         if (exeNameText != null)
-        {
-            string makers = game.MakersAndYear;
-            exeNameText.text = string.IsNullOrEmpty(makers) ? game.Title : $"{game.Title}\n<size=60%>{makers}</size>";
-        }
+            exeNameText.text = game.Title;
 
         // Vakje 2: spelers en genre
         if (playersGenreText != null)
             playersGenreText.text = game.PlayersAndGenre;
 
-        // Vakje 3: besturing (in fase 2 komt hier de beste highscore)
+        // Vakje 3: makers en jaar
         if (extraInfoText != null)
-            extraInfoText.text = string.IsNullOrWhiteSpace(game.Metadata.controls) ? "" : $"<size=70%>{game.Metadata.controls.Trim()}</size>";
+            extraInfoText.text = game.MakersAndYear;
+
+        // Highscores verschijnen na een paar seconden over het grote plaatje
+        if (leaderboardOverlay != null)
+            leaderboardOverlay.Show(game);
     }
 
     // Toont een melding in het infopaneel, bijvoorbeeld als er geen games zijn.
@@ -488,6 +515,8 @@ public class UIHandler : MonoBehaviour
         }
         if (gameImageTitle != null)
             gameImageTitle.text = "";
+        if (leaderboardOverlay != null)
+            leaderboardOverlay.Hide();
         if (exeNameText != null)
             exeNameText.text = $"{title}\n<size=50%>{detail}</size>";
         if (playersGenreText != null)
@@ -528,7 +557,7 @@ public class UIHandler : MonoBehaviour
     // --- Launch the exe directly on Windows ---
     private void StartExe(int gameNumber)
     {
-        if (gameNumber >= games.Count)
+        if (gameNumber >= games.Count || IsGameRunning)
             return;
 
         if (Time.unscaledTime - lastLaunchTime < launchCooldown)
@@ -549,12 +578,113 @@ public class UIHandler : MonoBehaviour
                 UseShellExecute = true, // UseShellExecute true for Windows GUI apps
                 CreateNoWindow = false
             };
-            Process.Start(startInfo);
+            Process process = Process.Start(startInfo);
+            if (process != null)
+                OnGameStarted(process, games[gameNumber]);
         }
         catch (System.Exception ex)
         {
             UnityEngine.Debug.LogError($"Failed to start exe: {exePath}\n{ex.Message}");
         }
+    }
+
+    private bool IsGameRunning
+    {
+        get { return runningGame != null; }
+    }
+
+    // Terwijl een game draait: geen input in het menu (de gamepad wordt ook op de achtergrond gelezen),
+    // video op pauze en een lage framerate, zodat de game alle rekenkracht krijgt.
+    private void OnGameStarted(Process process, GameEntry game)
+    {
+        runningGame = process;
+        runningGameFolder = game.FolderPath;
+        nextRunningGameCheck = Time.unscaledTime + runningGameCheckInterval;
+
+        if (leaderboardOverlay != null)
+            leaderboardOverlay.Hide();
+        eventSystem.enabled = false;
+        if (backgroundVideo != null)
+            backgroundVideo.Pause();
+
+        savedVSyncCount = QualitySettings.vSyncCount;
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = 10;
+    }
+
+    private void CheckRunningGame()
+    {
+        bool exited;
+        try
+        {
+            exited = runningGame.HasExited;
+        }
+        catch (System.Exception ex)
+        {
+            UnityEngine.Debug.LogWarning($"[UIHandler] Kan de status van de game niet lezen: {ex.Message}");
+            exited = true;
+        }
+
+        if (exited)
+            OnGameExited();
+    }
+
+    private void OnGameExited()
+    {
+        runningGame.Dispose();
+        runningGame = null;
+
+        QualitySettings.vSyncCount = savedVSyncCount;
+        Application.targetFrameRate = -1;
+        if (backgroundVideo != null)
+            backgroundVideo.Play();
+        eventSystem.enabled = true;
+
+        BringMenuToFront();
+
+        // Scores kunnen veranderd zijn; daarna de game weer selecteren waar de speler vandaan kwam.
+        int index = games.FindIndex(g => g.FolderPath == runningGameFolder);
+        runningGameFolder = null;
+        if (index < 0)
+            return;
+
+        GameLibrary.ReloadHighscores(games[index]);
+        if (eventSystem.currentSelectedGameObject == gameButtons[index])
+            ShowGameInfo(games[index]);
+        else
+            eventSystem.SetSelectedGameObject(gameButtons[index]);
+    }
+
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(System.IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern System.IntPtr GetActiveWindow();
+#endif
+
+    // Na het afsluiten van een game krijgt het menu niet altijd vanzelf de focus terug.
+    private void BringMenuToFront()
+    {
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+        try
+        {
+            System.IntPtr window = menuWindow != System.IntPtr.Zero ? menuWindow : Process.GetCurrentProcess().MainWindowHandle;
+            if (window != System.IntPtr.Zero)
+            {
+                const int SW_RESTORE = 9;
+                ShowWindow(window, SW_RESTORE);
+                SetForegroundWindow(window);
+            }
+        }
+        catch (System.Exception ex)
+        {
+            UnityEngine.Debug.LogWarning($"[UIHandler] Kon het menu niet naar voren halen: {ex.Message}");
+        }
+#endif
     }
 
     // Zet de pc uit op het tijdstip uit arcade-config.json. Alleen als dat tijdstip voorbijkomt terwijl

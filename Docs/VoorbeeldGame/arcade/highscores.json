@@ -1,0 +1,33 @@
+{
+  "formatVersion": 1,
+  "boards": [
+    {
+      "id": "classic",
+      "title": "Classic",
+      "scoreLabel": "Punten",
+      "sortOrder": "desc",
+      "entries": [
+        { "name": "AAA", "score": 12000, "date": "2026-10-28" },
+        { "name": "MBR", "score": 9850, "date": "2026-10-27" },
+        { "name": "JDV", "score": 7400, "date": "2026-10-25" },
+        { "name": "SAR", "score": 5120, "date": "2026-10-24" },
+        { "name": "KEV", "score": 4300, "date": "2026-10-22" },
+        { "name": "LOT", "score": 3990, "date": "2026-10-21" },
+        { "name": "TIM", "score": 2500, "date": "2026-10-20" },
+        { "name": "EVA", "score": 1800, "date": "2026-10-18" },
+        { "name": "BAS", "score": 950, "date": "2026-10-15" },
+        { "name": "NOA", "score": 400, "date": "2026-10-12" }
+      ]
+    },
+    {
+      "id": "time-attack",
+      "title": "Time Attack",
+      "scoreLabel": "Seconden",
+      "sortOrder": "asc",
+      "entries": [
+        { "name": "JDV", "score": 48.2, "date": "2026-10-26" },
+        { "name": "AAA", "score": 51.75, "date": "2026-10-27" }
+      ]
+    }
+  ]
+}
