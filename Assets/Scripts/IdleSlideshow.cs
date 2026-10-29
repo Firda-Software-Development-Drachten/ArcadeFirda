@@ -194,17 +194,28 @@ public class IdleSlideshow : MonoBehaviour
             return;
         }
 
-        Texture texture = slide.Game.Preview;
+        // Bijgesneden kopieen in plaats van een uvRect, anders vallen de ronde hoeken buiten beeld.
+        Rect rect = slideImage.rectTransform.rect;
+        float aspect = rect.height > 0 ? rect.width / rect.height : 16f / 9f;
+        int maxWidth = Mathf.Max(256, Mathf.CeilToInt(rect.width));
+
+        Texture texture = null;
         if (slide.Kind == SlideKind.Screenshot)
         {
-            loadedScreenshot = GameLibrary.LoadImage(slide.ImagePath);
-            if (loadedScreenshot != null)
+            Texture2D screenshot = GameLibrary.LoadImage(slide.ImagePath);
+            if (screenshot != null)
+            {
+                loadedScreenshot = GameLibrary.CreateCroppedCopy(screenshot, aspect, maxWidth);
+                if (loadedScreenshot != screenshot)
+                    Destroy(screenshot);
                 texture = loadedScreenshot;
+            }
         }
+        if (texture == null)
+            texture = slide.Game.GetCroppedPreview(aspect, maxWidth);
 
         slideImage.texture = texture;
-        Rect rect = slideImage.rectTransform.rect;
-        slideImage.uvRect = GameLibrary.GetCropUv(texture, rect.height > 0 ? rect.width / rect.height : 16f / 9f);
+        slideImage.uvRect = new Rect(0, 0, 1, 1);
 
         slideTitle.text = slide.Game.Title;
         slideSubtitle.text = slide.Game.MakersAndYear.Replace("\n", " · ");

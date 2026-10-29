@@ -85,6 +85,7 @@ public class UIHandler : MonoBehaviour
     private bool shutdownStarted = false;
 
     private const float previewInset = 8f;
+    private const int thumbnailSize = 320;
 
     private void Awake()
     {
@@ -358,8 +359,7 @@ public class UIHandler : MonoBehaviour
         rect.offsetMax = new Vector2(-previewInset, -previewInset);
 
         var preview = previewObject.AddComponent<RawImage>();
-        preview.texture = game.Preview;
-        preview.uvRect = GameLibrary.GetCropUv(game.Preview, 1f);
+        preview.texture = game.GetCroppedPreview(1f, thumbnailSize);
         preview.raycastTarget = false;
 
         var buttonCorners = button.GetComponent<ImageWithRoundedCorners>();
@@ -485,9 +485,10 @@ public class UIHandler : MonoBehaviour
     {
         if (gameImage != null)
         {
-            gameImage.texture = game.Preview;
             Rect rect = gameImage.rectTransform.rect;
-            gameImage.uvRect = GameLibrary.GetCropUv(game.Preview, rect.height > 0 ? rect.width / rect.height : 16f / 9f);
+            float aspect = rect.height > 0 ? rect.width / rect.height : 16f / 9f;
+            gameImage.texture = game.GetCroppedPreview(aspect, Mathf.Max(256, Mathf.CeilToInt(rect.width)));
+            gameImage.uvRect = new Rect(0, 0, 1, 1);
         }
         if (gameImageTitle != null)
             gameImageTitle.text = game.HasPreview ? "" : game.Title;
