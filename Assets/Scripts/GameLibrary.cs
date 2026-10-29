@@ -34,6 +34,33 @@ public class GameEntry
     public bool HasPreview;
     public ArcadeHighscoreFile Highscores;
 
+    private readonly Dictionary<(int, int), Texture2D> croppedPreviews = new Dictionary<(int, int), Texture2D>();
+
+    // De preview, bijgesneden tot de gegeven verhouding. De RoundedCorners-shader rekent de hoeken uit
+    // op de UV's, dus een RawImage met afgeronde hoeken moet de hele textuur tonen (geen uvRect).
+    public Texture2D GetCroppedPreview(float aspect, int maxWidth)
+    {
+        var key = (Mathf.RoundToInt(aspect * 100f), maxWidth);
+        if (!croppedPreviews.TryGetValue(key, out Texture2D texture) || texture == null)
+        {
+            texture = GameLibrary.CreateCroppedCopy(Preview, aspect, maxWidth);
+            croppedPreviews[key] = texture;
+        }
+        return texture;
+    }
+
+    public void DestroyTextures()
+    {
+        foreach (Texture2D texture in croppedPreviews.Values)
+        {
+            if (texture != null && texture != Preview)
+                UnityEngine.Object.Destroy(texture);
+        }
+        croppedPreviews.Clear();
+        if (Preview != null)
+            UnityEngine.Object.Destroy(Preview);
+    }
+
     public string Id
     {
         get { return string.IsNullOrWhiteSpace(Metadata.id) ? Path.GetFileName(FolderPath) : Metadata.id.Trim(); }
@@ -324,12 +351,47 @@ public static class GameLibrary
         return new Rect(0, (1f - height) / 2f, 1, height);
     }
 
+    // Maakt een nieuwe textuur met het midden van de afbeelding in de gegeven verhouding,
+    // maximaal maxWidth pixels breed. De bron blijft bestaan.
+    public static Texture2D CreateCroppedCopy(Texture2D source, float targetAspect, int maxWidth)
+    {
+        if (source == null)
+            return null;
+        if (!source.isReadable)
+        {
+            Debug.LogWarning($"[GameLibrary] {source.name} is niet leesbaar en kan niet worden bijgesneden.");
+            return source;
+        }
+
+        Rect crop = GetCropUv(source, targetAspect);
+        int width = Mathf.Clamp(Mathf.RoundToInt(crop.width * source.width), 1, Mathf.Max(1, maxWidth));
+        int height = Mathf.Max(1, Mathf.RoundToInt(width / targetAspect));
+
+        var pixels = new Color[width * height];
+        for (int y = 0; y < height; y++)
+        {
+            float v = crop.y + (y + 0.5f) / height * crop.height;
+            for (int x = 0; x < width; x++)
+            {
+                float u = crop.x + (x + 0.5f) / width * crop.width;
+                pixels[y * width + x] = source.GetPixelBilinear(u, v);
+            }
+        }
+
+        var texture = new Texture2D(width, height, TextureFormat.RGBA32, true)
+        {
+            name = source.name + " (bijgesneden)",
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Trilinear
+        };
+        texture.SetPixels(pixels);
+        texture.Apply(true, true);
+        return texture;
+    }
+
     public static void DestroyTextures(List<GameEntry> games)
     {
         foreach (GameEntry game in games)
-        {
-            if (game.Preview != null)
-                UnityEngine.Object.Destroy(game.Preview);
-        }
+            game.DestroyTextures();
     }
 }

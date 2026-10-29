@@ -22,7 +22,15 @@ public class IdleSlideshow : MonoBehaviour
     [SerializeField] private float fadeSeconds = 0.5f;
     [SerializeField] private int gamesPerHighscoreSlide = 3;
 
-    private enum SlideKind { Preview, Screenshot, Highscores }
+    [Header("Credits voor de makers van de arcadekast")]
+    [SerializeField] private string creditsYear = "2025";
+    [SerializeField] private string[] creditsNames = { "Daniël", "Quinten", "Sjoerd", "Stef", "Thijs", "Yorick" };
+    // Kans per ronde van de slideshow dat de creditdia erin zit, zodat hij zelden voorbijkomt.
+    [SerializeField, Range(0f, 1f)] private float creditsChance = 0.25f;
+
+    private static readonly Color Leisteen = new Color32(0x3A, 0x57, 0x57, 0xFF);
+
+    private enum SlideKind { Preview, Screenshot, Highscores, Credits }
 
     private class Slide
     {
@@ -34,6 +42,7 @@ public class IdleSlideshow : MonoBehaviour
     private readonly List<Slide> slides = new List<Slide>();
     private LeaderboardOverlay leaderboard;
     private Texture2D loadedScreenshot;
+    private TextMeshProUGUI creditsText;
     private int slideIndex;
     private float slideStartedAt;
     private float lastInputTime;
@@ -44,6 +53,7 @@ public class IdleSlideshow : MonoBehaviour
         leaderboard = LeaderboardOverlay.Create(slideImage.rectTransform, slideTitle);
         leaderboard.showDelay = 0f;
         leaderboard.boardDuration = slideSeconds;
+        creditsText = CreateCreditsText();
 
         idleScreen.alpha = 0f;
         lastInputTime = Time.unscaledTime;
@@ -155,6 +165,10 @@ public class IdleSlideshow : MonoBehaviour
         // Met weinig games toch minstens één highscoredia.
         if (withScores.Count > 0 && !slides.Exists(s => s.Kind == SlideKind.Highscores))
             slides.Add(new Slide { Kind = SlideKind.Highscores, Game = withScores[0] });
+
+        // Af en toe, op een willekeurige plek (niet als eerste), de credits voor de makers van de kast.
+        if (slides.Count > 0 && creditsNames != null && creditsNames.Length > 0 && Random.value < creditsChance)
+            slides.Insert(Random.Range(1, slides.Count + 1), new Slide { Kind = SlideKind.Credits });
     }
 
     private void ShowSlide(int index)
@@ -171,17 +185,37 @@ public class IdleSlideshow : MonoBehaviour
         Slide slide = slides[index];
 
         UnloadScreenshot();
-        Texture texture = slide.Game.Preview;
-        if (slide.Kind == SlideKind.Screenshot)
+        creditsText.text = "";
+        slideImage.color = Color.white;
+
+        if (slide.Kind == SlideKind.Credits)
         {
-            loadedScreenshot = GameLibrary.LoadImage(slide.ImagePath);
-            if (loadedScreenshot != null)
-                texture = loadedScreenshot;
+            ShowCredits();
+            return;
         }
 
-        slideImage.texture = texture;
+        // Bijgesneden kopieen in plaats van een uvRect, anders vallen de ronde hoeken buiten beeld.
         Rect rect = slideImage.rectTransform.rect;
-        slideImage.uvRect = GameLibrary.GetCropUv(texture, rect.height > 0 ? rect.width / rect.height : 16f / 9f);
+        float aspect = rect.height > 0 ? rect.width / rect.height : 16f / 9f;
+        int maxWidth = Mathf.Max(256, Mathf.CeilToInt(rect.width));
+
+        Texture texture = null;
+        if (slide.Kind == SlideKind.Screenshot)
+        {
+            Texture2D screenshot = GameLibrary.LoadImage(slide.ImagePath);
+            if (screenshot != null)
+            {
+                loadedScreenshot = GameLibrary.CreateCroppedCopy(screenshot, aspect, maxWidth);
+                if (loadedScreenshot != screenshot)
+                    Destroy(screenshot);
+                texture = loadedScreenshot;
+            }
+        }
+        if (texture == null)
+            texture = slide.Game.GetCroppedPreview(aspect, maxWidth);
+
+        slideImage.texture = texture;
+        slideImage.uvRect = new Rect(0, 0, 1, 1);
 
         slideTitle.text = slide.Game.Title;
         slideSubtitle.text = slide.Game.MakersAndYear.Replace("\n", " · ");
@@ -192,8 +226,50 @@ public class IdleSlideshow : MonoBehaviour
             leaderboard.Hide();
     }
 
+    private void ShowCredits()
+    {
+        // Een vlak in Leisteen groen met de namen, in plaats van een preview.
+        slideImage.texture = null;
+        slideImage.uvRect = new Rect(0, 0, 1, 1);
+        slideImage.color = Leisteen;
+        leaderboard.Hide();
+
+        var names = new List<string>(creditsNames);
+        names.RemoveAll(string.IsNullOrWhiteSpace);
+        names.Sort(System.StringComparer.CurrentCultureIgnoreCase);
+
+        creditsText.text = "<size=50%><color=#FFCD00>/</color> Deze arcadekast is gemaakt door</size>\n\n" + string.Join("\n", names);
+        slideTitle.text = "Arcadekast Firda";
+        slideSubtitle.text = $"Studenten Software Development · {creditsYear}";
+    }
+
+    private TextMeshProUGUI CreateCreditsText()
+    {
+        var textObject = new GameObject("CreditsText", typeof(RectTransform));
+        textObject.layer = slideImage.gameObject.layer;
+        var rect = (RectTransform)textObject.transform;
+        rect.SetParent(slideImage.transform, false);
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = new Vector2(60, 40);
+        rect.offsetMax = new Vector2(-60, -40);
+
+        var text = textObject.AddComponent<TextMeshProUGUI>();
+        text.font = slideTitle.font;
+        text.color = Color.white;
+        text.alignment = TextAlignmentOptions.Center;
+        text.enableAutoSizing = true;
+        text.fontSizeMin = 24;
+        text.fontSizeMax = 72;
+        text.raycastTarget = false;
+        text.text = "";
+        return text;
+    }
+
     private float SlideDuration(Slide slide)
     {
+        if (slide.Kind == SlideKind.Credits)
+            return slideSeconds * 1.5f;
         if (slide.Kind != SlideKind.Highscores)
             return slideSeconds;
 
